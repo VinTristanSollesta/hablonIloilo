@@ -12,11 +12,11 @@
         android:layout_weight="1"/>
 
     <Button
-        android:id="@+id/save_button"
+        android:id="@+id/clear_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Save Selected Colors"
-        android:enabled="false"/>
+        android:text="Clear All Colors"
+        android:backgroundTint="@color/design_default_color_error"/>
 
 </LinearLayout> 

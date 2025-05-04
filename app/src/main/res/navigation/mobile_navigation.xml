@@ -28,4 +28,17 @@
         android:name="com.example.habloniloilo.ui.color.ColorDisplayFragment"
         android:label="Extracted Colors"
         tools:layout="@layout/fragment_color_display" />
+
+    <fragment
+        android:id="@+id/navigation_color_palette"
+        android:name="com.example.habloniloilo.ui.color.ColorPaletteFragment"
+        android:label="Color Palette"
+        tools:layout="@layout/fragment_color_palette" />
+
+    <fragment
+        android:id="@+id/navigation_color_group"
+        android:name="com.example.habloniloilo.ui.color.ColorGroupFragment"
+        android:label="Create Color Group"
+        tools:layout="@layout/fragment_color_group" />
+
 </navigation>

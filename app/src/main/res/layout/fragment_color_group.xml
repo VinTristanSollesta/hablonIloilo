@@ -5,18 +5,27 @@
     android:orientation="vertical"
     android:padding="16dp">
 
+    <EditText
+        android:id="@+id/group_name_edit_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter group name"
+        android:inputType="text"
+        android:maxLines="1"/>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/colors_recycler_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"/>
+        android:layout_weight="1"
+        android:layout_marginTop="16dp"/>
 
     <Button
         android:id="@+id/save_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Save Selected Colors"
+        android:text="Save Group"
         android:enabled="false"/>
 
 </LinearLayout> 

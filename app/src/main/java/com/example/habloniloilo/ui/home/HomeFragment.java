@@ -27,7 +27,7 @@ public class HomeFragment extends Fragment {
         );
 
         binding.btnColorPalette.setOnClickListener(v -> 
-            Navigation.findNavController(v).navigate(R.id.navigation_color_display)
+            Navigation.findNavController(v).navigate(R.id.navigation_color_palette)
         );
 
         return root;

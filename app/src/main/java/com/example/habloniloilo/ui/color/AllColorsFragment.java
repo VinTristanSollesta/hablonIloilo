@@ -6,8 +6,6 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -15,31 +13,27 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
-import androidx.navigation.Navigation;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.habloniloilo.R;
 import com.example.habloniloilo.database.ColorDatabaseHelper;
-import com.example.habloniloilo.databinding.FragmentColorDisplayBinding;
+import com.example.habloniloilo.databinding.FragmentAllColorsBinding;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
-public class ColorDisplayFragment extends Fragment {
-    private static final String TAG = "ColorDisplayFragment";
-    private FragmentColorDisplayBinding binding;
+public class AllColorsFragment extends Fragment {
+    private static final String TAG = "AllColorsFragment";
+    private FragmentAllColorsBinding binding;
     private ColorAdapter colorAdapter;
-    private List<Integer> extractedColors = new ArrayList<>();
-    private Set<Integer> selectedColors = new HashSet<>();
+    private List<Integer> savedColors = new ArrayList<>();
     private ColorDatabaseHelper dbHelper;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
                              ViewGroup container, Bundle savedInstanceState) {
-        binding = FragmentColorDisplayBinding.inflate(inflater, container, false);
+        binding = FragmentAllColorsBinding.inflate(inflater, container, false);
         View root = binding.getRoot();
 
         // Initialize database helper
@@ -48,21 +42,16 @@ public class ColorDisplayFragment extends Fragment {
         // Enable back button in action bar
         AppCompatActivity activity = (AppCompatActivity) requireActivity();
         if (activity.getSupportActionBar() != null) {
-            activity.getSupportActionBar().setTitle("Select Colors to Save");
+            activity.getSupportActionBar().setTitle("All Colors");
             activity.getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         }
 
         try {
-            // Get colors from arguments
-            if (getArguments() != null) {
-                ArrayList<Integer> colors = getArguments().getIntegerArrayList("colors");
-                if (colors != null) {
-                    extractedColors = colors;
-                }
-            }
+            // Load colors from database
+            savedColors = dbHelper.getAllColors();
 
             // Setup RecyclerView
-            colorAdapter = new ColorAdapter(extractedColors, new ColorAdapter.OnColorClickListener() {
+            colorAdapter = new ColorAdapter(savedColors, new ColorAdapter.OnColorClickListener() {
                 @Override
                 public void onColorClick(int color) {
                     // Show color details
@@ -74,59 +63,32 @@ public class ColorDisplayFragment extends Fragment {
                 }
 
                 @Override
-                public void onSelectionChanged(int color, boolean isSelected) {
-                    if (isSelected) {
-                        selectedColors.add(color);
-                    } else {
-                        selectedColors.remove(color);
-                    }
-                    updateSaveButtonState();
-                }
-
-                @Override
                 public void onDeleteClick(int color) {
-                    // Remove color from the list
-                    extractedColors.remove(Integer.valueOf(color));
-                    selectedColors.remove(color);
+                    // Delete color from database
+                    dbHelper.deleteColor(color);
+                    savedColors.remove(Integer.valueOf(color));
                     colorAdapter.notifyDataSetChanged();
-                    updateSaveButtonState();
                     Toast.makeText(requireContext(), "Color removed", Toast.LENGTH_SHORT).show();
                 }
             });
             binding.colorsRecyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
             binding.colorsRecyclerView.setAdapter(colorAdapter);
 
-            // Setup save button
-            binding.saveButton.setOnClickListener(v -> {
-                if (selectedColors.isEmpty()) {
-                    Toast.makeText(requireContext(), "Please select colors to save", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                
-                // Save selected colors to database
-                for (int color : selectedColors) {
-                    dbHelper.addColor(color);
-                }
-                
-                Toast.makeText(requireContext(), "Colors saved to palette", Toast.LENGTH_SHORT).show();
-                // Navigate to color palette screen
-                Navigation.findNavController(v).navigate(R.id.navigation_color_palette);
+            // Setup clear button
+            binding.clearButton.setOnClickListener(v -> {
+                dbHelper.clearAllColors();
+                savedColors.clear();
+                colorAdapter.notifyDataSetChanged();
+                Toast.makeText(requireContext(), "All colors cleared", Toast.LENGTH_SHORT).show();
             });
 
-            // Initially disable save button
-            updateSaveButtonState();
-
         } catch (Exception e) {
-            Log.e(TAG, "Error setting up color display", e);
+            Log.e(TAG, "Error setting up all colors", e);
             Toast.makeText(requireContext(), "Error displaying colors", Toast.LENGTH_SHORT).show();
             requireActivity().onBackPressed();
         }
 
         return root;
-    }
-
-    private void updateSaveButtonState() {
-        binding.saveButton.setEnabled(!selectedColors.isEmpty());
     }
 
     @Override
@@ -144,7 +106,6 @@ public class ColorDisplayFragment extends Fragment {
 
         interface OnColorClickListener {
             void onColorClick(int color);
-            void onSelectionChanged(int color, boolean isSelected);
             void onDeleteClick(int color);
         }
 
@@ -174,8 +135,6 @@ public class ColorDisplayFragment extends Fragment {
                 holder.colorHex.setText(String.format("#%06X", (0xFFFFFF & color)));
                 
                 holder.itemView.setOnClickListener(v -> listener.onColorClick(color));
-                holder.checkbox.setOnCheckedChangeListener((buttonView, isChecked) -> 
-                    listener.onSelectionChanged(color, isChecked));
                 holder.deleteButton.setOnClickListener(v -> listener.onDeleteClick(color));
             } catch (Exception e) {
                 Log.e(TAG, "Error binding view holder", e);
@@ -188,14 +147,12 @@ public class ColorDisplayFragment extends Fragment {
         }
 
         static class ColorViewHolder extends RecyclerView.ViewHolder {
-            CheckBox checkbox;
             View colorView;
             TextView colorHex;
             ImageButton deleteButton;
 
             ColorViewHolder(View itemView) {
                 super(itemView);
-                checkbox = itemView.findViewById(R.id.color_checkbox);
                 colorView = itemView.findViewById(R.id.color_view);
                 colorHex = itemView.findViewById(R.id.color_hex);
                 deleteButton = itemView.findViewById(R.id.delete_button);

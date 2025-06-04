@@ -11,10 +11,13 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.ColorSpaceTransform;
+import android.util.Rational;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
+import android.util.Size;
 import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.TextureView;
@@ -31,14 +34,17 @@ import androidx.navigation.Navigation;
 
 import com.example.habloniloilo.R;
 import com.example.habloniloilo.databinding.FragmentDashboardBinding;
+import com.google.android.material.button.MaterialButton;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class DashboardFragment extends Fragment {
 
@@ -48,8 +54,10 @@ public class DashboardFragment extends Fragment {
     private ImageButton captureButton;
     private CameraDevice cameraDevice;
     private CameraCaptureSession captureSession;
+    private Size previewSize;
     private Handler backgroundHandler;
     private HandlerThread backgroundThread;
+    private String currentFilter = null; // Track current color filter
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -67,6 +75,9 @@ public class DashboardFragment extends Fragment {
         cameraPreview = binding.cameraPreview;
         captureButton = binding.captureButton;
 
+        // Set up color filter buttons
+        setupColorFilters(root);
+
         if (ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA}, 1);
@@ -77,6 +88,114 @@ public class DashboardFragment extends Fragment {
         captureButton.setOnClickListener(v -> captureImage());
 
         return root;
+    }
+
+    private void setupColorFilters(View root) {
+        int[] filterButtonIds = {
+            R.id.filter_red, R.id.filter_blue, R.id.filter_yellow,
+            R.id.filter_green, R.id.filter_orange, R.id.filter_violet,
+            R.id.filter_brown
+        };
+
+        for (int buttonId : filterButtonIds) {
+            MaterialButton button = root.findViewById(buttonId);
+            button.setOnClickListener(v -> {
+                // Toggle filter
+                if (currentFilter != null && currentFilter.equals(button.getText().toString())) {
+                    currentFilter = null;
+                    button.setStrokeWidth(0);
+                } else {
+                    // Reset all buttons
+                    for (int id : filterButtonIds) {
+                        MaterialButton btn = root.findViewById(id);
+                        btn.setStrokeWidth(0);
+                    }
+                    currentFilter = button.getText().toString();
+                    button.setStrokeWidth(4);
+                }
+                // Restart preview with new filter
+                if (captureSession != null) {
+                    try {
+                        captureSession.stopRepeating();
+                        createCameraPreviewSession();
+                    } catch (CameraAccessException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        }
+    }
+
+    private void createCameraPreviewSession() throws CameraAccessException {
+        SurfaceTexture texture = cameraPreview.getSurfaceTexture();
+        texture.setDefaultBufferSize(1920, 1080);
+        Surface surface = new Surface(texture);
+
+        final CaptureRequest.Builder previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+        previewRequestBuilder.addTarget(surface);
+
+        // Add color filter to the preview request
+        if (currentFilter != null) {
+            // Apply color filter to remove the selected color
+            switch (currentFilter) {
+                case "Red":
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.0f, 1.0f, 1.0f));
+                    break;
+                case "Blue":
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(1.0f, 1.0f, 0.0f));
+                    break;
+                case "Yellow":
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.0f, 0.0f, 1.0f));
+                    break;
+                case "Green":
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(1.0f, 0.0f, 1.0f));
+                    break;
+                case "Orange":
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.0f, 0.5f, 1.0f));
+                    break;
+                case "Violet":
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.5f, 1.0f, 0.0f));
+                    break;
+                case "Brown":
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
+                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.4f, 0.7f, 1.0f));
+                    break;
+            }
+        }
+
+        cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback() {
+            @Override
+            public void onConfigured(@NonNull CameraCaptureSession session) {
+                if (cameraDevice == null) return;
+                captureSession = session;
+                try {
+                    previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                    captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, backgroundHandler);
+                } catch (CameraAccessException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            @Override
+            public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                Toast.makeText(requireContext(), "Configuration failed", Toast.LENGTH_SHORT).show();
+            }
+        }, backgroundHandler);
+    }
+
+    private ColorSpaceTransform getColorMatrix(float r, float g, float b) {
+        Rational[] matrix = new Rational[9];
+        matrix[0] = new Rational((int)(r * 100), 100); matrix[1] = new Rational(0, 1); matrix[2] = new Rational(0, 1);
+        matrix[3] = new Rational(0, 1); matrix[4] = new Rational((int)(g * 100), 100); matrix[5] = new Rational(0, 1);
+        matrix[6] = new Rational(0, 1); matrix[7] = new Rational(0, 1); matrix[8] = new Rational((int)(b * 100), 100);
+        return new ColorSpaceTransform(matrix);
     }
 
     private void captureImage() {
@@ -138,7 +257,7 @@ public class DashboardFragment extends Fragment {
         try {
             int width = bitmap.getWidth();
             int height = bitmap.getHeight();
-            Map<Integer, Integer> colorCount = new HashMap<>();
+            Map<Integer, Integer> colorCounts = new HashMap<>();
 
             // Sample pixels from the image
             for (int x = 0; x < width; x += 10) {
@@ -148,22 +267,28 @@ public class DashboardFragment extends Fragment {
                     if ((pixel & 0xFF000000) != 0) {
                         // Quantize colors to reduce the number of unique colors
                         int quantizedColor = quantizeColor(pixel);
-                        colorCount.put(quantizedColor, colorCount.getOrDefault(quantizedColor, 0) + 1);
+                        
+                        // Check if this color is similar to any existing color
+                        boolean isSimilar = false;
+                        for (int existingColor : colorCounts.keySet()) {
+                            if (isColorSimilar(quantizedColor, existingColor)) {
+                                // Add to the count of the similar color
+                                colorCounts.put(existingColor, colorCounts.get(existingColor) + 1);
+                                isSimilar = true;
+                                break;
+                            }
+                        }
+                        
+                        // If not similar to any existing color, add as new
+                        if (!isSimilar) {
+                            colorCounts.put(quantizedColor, 1);
+                        }
                     }
                 }
             }
 
-            // Sort colors by frequency
-            List<Map.Entry<Integer, Integer>> sortedColors = new ArrayList<>(colorCount.entrySet());
-            Collections.sort(sortedColors, (a, b) -> b.getValue().compareTo(a.getValue()));
-
-            // Get top 5 colors
-            List<Integer> dominantColors = new ArrayList<>();
-            for (int i = 0; i < Math.min(5, sortedColors.size()); i++) {
-                dominantColors.add(sortedColors.get(i).getKey());
-            }
-
-            return dominantColors;
+            // Convert map to list
+            return new ArrayList<>(colorCounts.keySet());
         } catch (Exception e) {
             Log.e(TAG, "Error extracting colors", e);
             return new ArrayList<>();
@@ -171,16 +296,38 @@ public class DashboardFragment extends Fragment {
     }
 
     private int quantizeColor(int color) {
-        // Quantize to 4 bits per channel
+        // More aggressive quantization - reduce to 3 bits per channel
         int r = (color >> 16) & 0xFF;
         int g = (color >> 8) & 0xFF;
         int b = color & 0xFF;
         
-        r = (r >> 4) << 4;
-        g = (g >> 4) << 4;
-        b = (b >> 4) << 4;
+        // Quantize to 3 bits (8 levels) per channel
+        r = (r >> 5) << 5;
+        g = (g >> 5) << 5;
+        b = (b >> 5) << 5;
         
         return 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
+
+    private boolean isColorSimilar(int color1, int color2) {
+        // Extract RGB components
+        int r1 = (color1 >> 16) & 0xFF;
+        int g1 = (color1 >> 8) & 0xFF;
+        int b1 = color1 & 0xFF;
+        
+        int r2 = (color2 >> 16) & 0xFF;
+        int g2 = (color2 >> 8) & 0xFF;
+        int b2 = color2 & 0xFF;
+        
+        // Calculate color difference using weighted RGB
+        double diff = Math.sqrt(
+            Math.pow(r1 - r2, 2) * 0.3 +  // Red weight
+            Math.pow(g1 - g2, 2) * 0.59 + // Green weight
+            Math.pow(b1 - b2, 2) * 0.11   // Blue weight
+        );
+        
+        // Consider colors similar if their difference is less than 30
+        return diff < 30;
     }
 
     private void navigateToColorDisplay(List<Integer> colors) {
@@ -233,7 +380,11 @@ public class DashboardFragment extends Fragment {
                     @Override
                     public void onOpened(@NonNull CameraDevice camera) {
                         cameraDevice = camera;
-                        createCameraPreview();
+                        try {
+                            createCameraPreviewSession();
+                        } catch (CameraAccessException e) {
+                            e.printStackTrace();
+                        }
                     }
 
                     @Override
@@ -248,39 +399,6 @@ public class DashboardFragment extends Fragment {
                     }
                 }, backgroundHandler);
             }
-        } catch (CameraAccessException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void createCameraPreview() {
-        try {
-            SurfaceTexture texture = cameraPreview.getSurfaceTexture();
-            texture.setDefaultBufferSize(1920, 1080);
-            Surface surface = new Surface(texture);
-
-            final CaptureRequest.Builder previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            previewRequestBuilder.addTarget(surface);
-
-            cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback() {
-                @Override
-                public void onConfigured(@NonNull CameraCaptureSession session) {
-                    if (cameraDevice == null) return;
-                    captureSession = session;
-                    try {
-                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
-                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-                        captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, backgroundHandler);
-                    } catch (CameraAccessException e) {
-                        e.printStackTrace();
-                    }
-                }
-
-                @Override
-                public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                    Toast.makeText(requireContext(), "Configuration failed", Toast.LENGTH_SHORT).show();
-                }
-            }, backgroundHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }

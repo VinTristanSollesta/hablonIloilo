@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.habloniloilo.R;
 import com.example.habloniloilo.database.ColorDatabaseHelper;
+import com.example.habloniloilo.database.ColorGroupDatabaseHelper;
 import com.example.habloniloilo.databinding.FragmentColorDisplayBinding;
 
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ public class ColorDisplayFragment extends Fragment {
     private List<Integer> extractedColors = new ArrayList<>();
     private Set<Integer> selectedColors = new HashSet<>();
     private ColorDatabaseHelper dbHelper;
+    private ColorGroupDatabaseHelper groupDbHelper;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
@@ -42,8 +44,9 @@ public class ColorDisplayFragment extends Fragment {
         binding = FragmentColorDisplayBinding.inflate(inflater, container, false);
         View root = binding.getRoot();
 
-        // Initialize database helper
+        // Initialize database helpers
         dbHelper = new ColorDatabaseHelper(requireContext());
+        groupDbHelper = new ColorGroupDatabaseHelper(requireContext());
 
         // Enable back button in action bar
         AppCompatActivity activity = (AppCompatActivity) requireActivity();
@@ -108,9 +111,17 @@ public class ColorDisplayFragment extends Fragment {
                     dbHelper.addColor(color);
                 }
                 
-                Toast.makeText(requireContext(), "Colors saved to palette", Toast.LENGTH_SHORT).show();
-                // Navigate to color palette screen
-                Navigation.findNavController(v).navigate(R.id.navigation_color_palette);
+                // Create a color group with the selected colors
+                String groupName = "Camera Colors " + System.currentTimeMillis();
+                long groupId = groupDbHelper.addColorGroup(groupName, new ArrayList<>(selectedColors));
+                
+                if (groupId != -1) {
+                    Toast.makeText(requireContext(), "Colors saved to palette", Toast.LENGTH_SHORT).show();
+                    // Navigate to color palette screen
+                    Navigation.findNavController(v).navigate(R.id.navigation_color_palette);
+                } else {
+                    Toast.makeText(requireContext(), "Error saving colors", Toast.LENGTH_SHORT).show();
+                }
             });
 
             // Initially disable save button
@@ -135,12 +146,16 @@ public class ColorDisplayFragment extends Fragment {
         if (dbHelper != null) {
             dbHelper.close();
         }
+        if (groupDbHelper != null) {
+            groupDbHelper.close();
+        }
         binding = null;
     }
 
     private static class ColorAdapter extends RecyclerView.Adapter<ColorAdapter.ColorViewHolder> {
         private final List<Integer> colors;
         private final OnColorClickListener listener;
+        private final Set<Integer> selectedColors = new HashSet<>();
 
         interface OnColorClickListener {
             void onColorClick(int color);
@@ -173,9 +188,21 @@ public class ColorDisplayFragment extends Fragment {
                 holder.colorView.setBackgroundColor(color);
                 holder.colorHex.setText(String.format("#%06X", (0xFFFFFF & color)));
                 
+                // Remove previous listener to prevent unwanted callbacks
+                holder.checkbox.setOnCheckedChangeListener(null);
+                // Set the checkbox state based on whether the color is selected
+                holder.checkbox.setChecked(selectedColors.contains(color));
+                // Add the listener back
+                holder.checkbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    if (isChecked) {
+                        selectedColors.add(color);
+                    } else {
+                        selectedColors.remove(color);
+                    }
+                    listener.onSelectionChanged(color, isChecked);
+                });
+                
                 holder.itemView.setOnClickListener(v -> listener.onColorClick(color));
-                holder.checkbox.setOnCheckedChangeListener((buttonView, isChecked) -> 
-                    listener.onSelectionChanged(color, isChecked));
                 holder.deleteButton.setOnClickListener(v -> listener.onDeleteClick(color));
             } catch (Exception e) {
                 Log.e(TAG, "Error binding view holder", e);

@@ -3,7 +3,6 @@ package com.example.habloniloilo.ui.dashboard;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -11,8 +10,6 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
-import android.hardware.camera2.params.ColorSpaceTransform;
-import android.util.Rational;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -33,18 +30,15 @@ import androidx.fragment.app.Fragment;
 import androidx.navigation.Navigation;
 
 import com.example.habloniloilo.R;
+import com.example.habloniloilo.database.HybridDatabaseManager;
+import com.example.habloniloilo.cloud.NetworkStateMonitor;
 import com.example.habloniloilo.databinding.FragmentDashboardBinding;
-import com.google.android.material.button.MaterialButton;
 
-import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public class DashboardFragment extends Fragment {
 
@@ -57,145 +51,111 @@ public class DashboardFragment extends Fragment {
     private Size previewSize;
     private Handler backgroundHandler;
     private HandlerThread backgroundThread;
-    private String currentFilter = null; // Track current color filter
+    private HybridDatabaseManager hybridDbManager;
+    private NetworkStateMonitor networkMonitor;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater,
                              ViewGroup container, Bundle savedInstanceState) {
-        binding = FragmentDashboardBinding.inflate(inflater, container, false);
-        View root = binding.getRoot();
+        try {
+            binding = FragmentDashboardBinding.inflate(inflater, container, false);
+            View root = binding.getRoot();
 
-        // Enable back button in action bar
-        AppCompatActivity activity = (AppCompatActivity) requireActivity();
-        if (activity.getSupportActionBar() != null) {
-            activity.getSupportActionBar().setTitle("Camera");
-            activity.getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-        }
+            // Initialize hybrid database manager
+            hybridDbManager = new HybridDatabaseManager(requireContext());
+            
+            // Initialize network monitor
+            networkMonitor = new NetworkStateMonitor(requireContext(), hybridDbManager);
+            networkMonitor.startMonitoring();
 
-        cameraPreview = binding.cameraPreview;
-        captureButton = binding.captureButton;
+            // Enable back button in action bar
+            AppCompatActivity activity = (AppCompatActivity) requireActivity();
+            if (activity.getSupportActionBar() != null) {
+                activity.getSupportActionBar().setTitle("Camera");
+                activity.getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+            }
 
-        // Set up color filter buttons
-        setupColorFilters(root);
+            // Check if we have the required views
+            if (binding.cameraPreview != null) {
+                cameraPreview = binding.cameraPreview;
+                Log.d(TAG, "Camera preview found");
+            } else {
+                Log.e(TAG, "cameraPreview not found in layout");
+                Toast.makeText(requireContext(), "Camera preview not found", Toast.LENGTH_SHORT).show();
+                return root;
+            }
 
-        if (ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, 1);
-        } else {
-            startCamera();
-        }
+            if (binding.captureButton != null) {
+                captureButton = binding.captureButton;
+                Log.d(TAG, "Capture button found");
+            } else {
+                Log.e(TAG, "captureButton not found in layout");
+                Toast.makeText(requireContext(), "Capture button not found", Toast.LENGTH_SHORT).show();
+                return root;
+            }
 
-        captureButton.setOnClickListener(v -> captureImage());
+            // Check camera permission
+            if (ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA)
+                    != PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "Requesting camera permission");
+                requestPermissions(new String[]{Manifest.permission.CAMERA}, 1);
+            } else {
+                Log.d(TAG, "Camera permission granted, starting camera");
+                startCamera();
+            }
 
-        return root;
-    }
-
-    private void setupColorFilters(View root) {
-        int[] filterButtonIds = {
-            R.id.filter_red, R.id.filter_blue, R.id.filter_yellow,
-            R.id.filter_green, R.id.filter_orange, R.id.filter_violet,
-            R.id.filter_brown
-        };
-
-        for (int buttonId : filterButtonIds) {
-            MaterialButton button = root.findViewById(buttonId);
-            button.setOnClickListener(v -> {
-                // Toggle filter
-                if (currentFilter != null && currentFilter.equals(button.getText().toString())) {
-                    currentFilter = null;
-                    button.setStrokeWidth(0);
-                } else {
-                    // Reset all buttons
-                    for (int id : filterButtonIds) {
-                        MaterialButton btn = root.findViewById(id);
-                        btn.setStrokeWidth(0);
-                    }
-                    currentFilter = button.getText().toString();
-                    button.setStrokeWidth(4);
-                }
-                // Restart preview with new filter
-                if (captureSession != null) {
-                    try {
-                        captureSession.stopRepeating();
-                        createCameraPreviewSession();
-                    } catch (CameraAccessException e) {
-                        e.printStackTrace();
-                    }
-                }
+            captureButton.setOnClickListener(v -> {
+                Log.d(TAG, "Capture button clicked");
+                captureImage();
             });
+
+            // Show sync status
+            String syncStatus = hybridDbManager.getSyncStatus();
+            Toast.makeText(requireContext(), syncStatus, Toast.LENGTH_SHORT).show();
+
+            return root;
+        } catch (Exception e) {
+            Log.e(TAG, "Error in onCreateView", e);
+            Toast.makeText(requireContext(), "Error initializing camera: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            return inflater.inflate(R.layout.fragment_dashboard, container, false);
         }
     }
 
     private void createCameraPreviewSession() throws CameraAccessException {
-        SurfaceTexture texture = cameraPreview.getSurfaceTexture();
-        texture.setDefaultBufferSize(1920, 1080);
-        Surface surface = new Surface(texture);
+        try {
+            SurfaceTexture texture = cameraPreview.getSurfaceTexture();
+            texture.setDefaultBufferSize(1920, 1080);
+            Surface surface = new Surface(texture);
 
-        final CaptureRequest.Builder previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-        previewRequestBuilder.addTarget(surface);
+            final CaptureRequest.Builder previewRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+            previewRequestBuilder.addTarget(surface);
 
-        // Add color filter to the preview request
-        if (currentFilter != null) {
-            // Apply color filter to remove the selected color
-            switch (currentFilter) {
-                case "Red":
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.0f, 1.0f, 1.0f));
-                    break;
-                case "Blue":
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(1.0f, 1.0f, 0.0f));
-                    break;
-                case "Yellow":
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.0f, 0.0f, 1.0f));
-                    break;
-                case "Green":
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(1.0f, 0.0f, 1.0f));
-                    break;
-                case "Orange":
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.0f, 0.5f, 1.0f));
-                    break;
-                case "Violet":
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.5f, 1.0f, 0.0f));
-                    break;
-                case "Brown":
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX);
-                    previewRequestBuilder.set(CaptureRequest.COLOR_CORRECTION_TRANSFORM, getColorMatrix(0.4f, 0.7f, 1.0f));
-                    break;
-            }
-        }
-
-        cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback() {
-            @Override
-            public void onConfigured(@NonNull CameraCaptureSession session) {
-                if (cameraDevice == null) return;
-                captureSession = session;
-                try {
-                    previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
-                            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-                    captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, backgroundHandler);
-                } catch (CameraAccessException e) {
-                    e.printStackTrace();
+            cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback() {
+                @Override
+                public void onConfigured(@NonNull CameraCaptureSession session) {
+                    if (cameraDevice == null) return;
+                    captureSession = session;
+                    try {
+                        previewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
+                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                        captureSession.setRepeatingRequest(previewRequestBuilder.build(), null, backgroundHandler);
+                        Log.d(TAG, "Camera preview session configured successfully");
+                    } catch (CameraAccessException e) {
+                        Log.e(TAG, "Error setting repeating request", e);
+                        e.printStackTrace();
+                    }
                 }
-            }
 
-            @Override
-            public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                Toast.makeText(requireContext(), "Configuration failed", Toast.LENGTH_SHORT).show();
-            }
-        }, backgroundHandler);
-    }
-
-    private ColorSpaceTransform getColorMatrix(float r, float g, float b) {
-        Rational[] matrix = new Rational[9];
-        matrix[0] = new Rational((int)(r * 100), 100); matrix[1] = new Rational(0, 1); matrix[2] = new Rational(0, 1);
-        matrix[3] = new Rational(0, 1); matrix[4] = new Rational((int)(g * 100), 100); matrix[5] = new Rational(0, 1);
-        matrix[6] = new Rational(0, 1); matrix[7] = new Rational(0, 1); matrix[8] = new Rational((int)(b * 100), 100);
-        return new ColorSpaceTransform(matrix);
+                @Override
+                public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                    Log.e(TAG, "Camera configuration failed");
+                    Toast.makeText(requireContext(), "Configuration failed", Toast.LENGTH_SHORT).show();
+                }
+            }, backgroundHandler);
+        } catch (Exception e) {
+            Log.e(TAG, "Error creating camera preview session", e);
+            Toast.makeText(requireContext(), "Error creating camera preview: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void captureImage() {
@@ -215,12 +175,16 @@ public class DashboardFragment extends Fragment {
                                              @NonNull CaptureRequest request,
                                              @NonNull TotalCaptureResult result) {
                     super.onCaptureCompleted(session, request, result);
+                    Log.d(TAG, "Image captured successfully");
                     processImage();
                 }
             }, backgroundHandler);
         } catch (CameraAccessException e) {
             Log.e(TAG, "Camera access error", e);
             Toast.makeText(requireContext(), "Camera access error", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.e(TAG, "Error capturing image", e);
+            Toast.makeText(requireContext(), "Error capturing image: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -232,6 +196,8 @@ public class DashboardFragment extends Fragment {
                 Toast.makeText(requireContext(), "Failed to capture image", Toast.LENGTH_SHORT).show();
                 return;
             }
+
+            Log.d(TAG, "Processing image: " + bitmap.getWidth() + "x" + bitmap.getHeight());
 
             // Scale down the bitmap to make processing faster
             Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmap, 
@@ -246,10 +212,21 @@ public class DashboardFragment extends Fragment {
                 return;
             }
 
-            navigateToColorDisplay(dominantColors);
+            Log.d(TAG, "Extracted " + dominantColors.size() + " colors");
+
+            // Add colors to hybrid database (local + cloud sync)
+            for (Integer color : dominantColors) {
+                hybridDbManager.addColor(color);
+            }
+
+            // Compare with existing colors and get comparison results
+            ColorComparisonResult comparisonResult = compareColorsWithExisting(dominantColors);
+            
+            // Navigate to color display with comparison results
+            navigateToColorDisplay(dominantColors, comparisonResult);
         } catch (Exception e) {
             Log.e(TAG, "Error processing image", e);
-            Toast.makeText(requireContext(), "Error processing image", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), "Error processing image: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -330,77 +307,164 @@ public class DashboardFragment extends Fragment {
         return diff < 30;
     }
 
-    private void navigateToColorDisplay(List<Integer> colors) {
+    /**
+     * Compare new colors with existing colors in the database
+     * @param newColors List of colors extracted from the captured image
+     * @return ColorComparisonResult containing comparison details
+     */
+    private ColorComparisonResult compareColorsWithExisting(List<Integer> newColors) {
+        try {
+            List<Integer> existingColors = hybridDbManager.getAllColors();
+            List<Integer> similarColors = new ArrayList<>();
+            List<Integer> uniqueColors = new ArrayList<>();
+            List<ColorMatch> colorMatches = new ArrayList<>();
+
+            for (int newColor : newColors) {
+                boolean foundSimilar = false;
+                int bestMatch = -1;
+                double bestSimilarity = Double.MAX_VALUE;
+
+                // Find the most similar existing color
+                for (int existingColor : existingColors) {
+                    if (isColorSimilar(newColor, existingColor)) {
+                        foundSimilar = true;
+                        double similarity = calculateColorSimilarity(newColor, existingColor);
+                        if (similarity < bestSimilarity) {
+                            bestSimilarity = similarity;
+                            bestMatch = existingColor;
+                        }
+                    }
+                }
+
+                if (foundSimilar) {
+                    similarColors.add(newColor);
+                    colorMatches.add(new ColorMatch(newColor, bestMatch, bestSimilarity));
+                } else {
+                    uniqueColors.add(newColor);
+                }
+            }
+
+            return new ColorComparisonResult(similarColors, uniqueColors, colorMatches, existingColors.size());
+        } catch (Exception e) {
+            Log.e(TAG, "Error comparing colors", e);
+            return new ColorComparisonResult(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), 0);
+        }
+    }
+
+    /**
+     * Calculate similarity score between two colors (lower = more similar)
+     */
+    private double calculateColorSimilarity(int color1, int color2) {
+        int r1 = (color1 >> 16) & 0xFF;
+        int g1 = (color1 >> 8) & 0xFF;
+        int b1 = color1 & 0xFF;
+        
+        int r2 = (color2 >> 16) & 0xFF;
+        int g2 = (color2 >> 8) & 0xFF;
+        int b2 = color2 & 0xFF;
+        
+        return Math.sqrt(
+            Math.pow(r1 - r2, 2) * 0.3 +
+            Math.pow(g1 - g2, 2) * 0.59 +
+            Math.pow(b1 - b2, 2) * 0.11
+        );
+    }
+
+    private void navigateToColorDisplay(List<Integer> colors, ColorComparisonResult comparisonResult) {
         try {
             Bundle args = new Bundle();
             args.putIntegerArrayList("colors", new ArrayList<>(colors));
+            args.putIntegerArrayList("similar_colors", new ArrayList<>(comparisonResult.getSimilarColors()));
+            args.putIntegerArrayList("unique_colors", new ArrayList<>(comparisonResult.getUniqueColors()));
+            args.putInt("existing_colors_count", comparisonResult.getExistingColorsCount());
             Navigation.findNavController(requireView())
                     .navigate(R.id.navigation_color_display, args);
+            Log.d(TAG, "Navigation successful");
         } catch (Exception e) {
             Log.e(TAG, "Navigation error", e);
-            Toast.makeText(requireContext(), "Error displaying colors", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), "Error displaying colors: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
     private void startCamera() {
-        backgroundThread = new HandlerThread("CameraBackground");
-        backgroundThread.start();
-        backgroundHandler = new Handler(backgroundThread.getLooper());
+        try {
+            backgroundThread = new HandlerThread("CameraBackground");
+            backgroundThread.start();
+            backgroundHandler = new Handler(backgroundThread.getLooper());
 
-        cameraPreview.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
-            @Override
-            public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
-                openCamera();
-            }
+            cameraPreview.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
+                @Override
+                public void onSurfaceTextureAvailable(@NonNull SurfaceTexture surface, int width, int height) {
+                    Log.d(TAG, "Surface texture available: " + width + "x" + height);
+                    openCamera();
+                }
 
-            @Override
-            public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {
-                // Handle surface size change
-            }
+                @Override
+                public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {
+                    Log.d(TAG, "Surface texture size changed: " + width + "x" + height);
+                }
 
-            @Override
-            public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
-                return false;
-            }
+                @Override
+                public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
+                    Log.d(TAG, "Surface texture destroyed");
+                    return false;
+                }
 
-            @Override
-            public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
-                // Handle surface updates
-            }
-        });
+                @Override
+                public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {
+                    // Handle surface updates
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting camera", e);
+            Toast.makeText(requireContext(), "Error starting camera: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void openCamera() {
-        CameraManager manager = (CameraManager) requireContext().getSystemService(requireContext().CAMERA_SERVICE);
         try {
+            CameraManager manager = (CameraManager) requireContext().getSystemService(requireContext().CAMERA_SERVICE);
             String cameraId = manager.getCameraIdList()[0];
+            Log.d(TAG, "Opening camera: " + cameraId);
+            
             if (ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA)
                     == PackageManager.PERMISSION_GRANTED) {
                 manager.openCamera(cameraId, new CameraDevice.StateCallback() {
                     @Override
                     public void onOpened(@NonNull CameraDevice camera) {
+                        Log.d(TAG, "Camera opened successfully");
                         cameraDevice = camera;
                         try {
                             createCameraPreviewSession();
                         } catch (CameraAccessException e) {
+                            Log.e(TAG, "Error creating camera preview session", e);
                             e.printStackTrace();
                         }
                     }
 
                     @Override
                     public void onDisconnected(@NonNull CameraDevice camera) {
+                        Log.d(TAG, "Camera disconnected");
                         cameraDevice.close();
                     }
 
                     @Override
                     public void onError(@NonNull CameraDevice camera, int error) {
+                        Log.e(TAG, "Camera error: " + error);
                         cameraDevice.close();
                         cameraDevice = null;
                     }
                 }, backgroundHandler);
+            } else {
+                Log.e(TAG, "Camera permission not granted");
+                Toast.makeText(requireContext(), "Camera permission not granted", Toast.LENGTH_SHORT).show();
             }
         } catch (CameraAccessException e) {
-            e.printStackTrace();
+            Log.e(TAG, "Camera access exception", e);
+            Toast.makeText(requireContext(), "Camera access error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening camera", e);
+            Toast.makeText(requireContext(), "Error opening camera: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -409,8 +473,10 @@ public class DashboardFragment extends Fragment {
                                          @NonNull int[] grantResults) {
         if (requestCode == 1) {
             if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Log.d(TAG, "Camera permission granted");
                 startCamera();
             } else {
+                Log.e(TAG, "Camera permission denied");
                 Toast.makeText(requireContext(), "Camera permission required", Toast.LENGTH_SHORT).show();
             }
         }
@@ -433,6 +499,54 @@ public class DashboardFragment extends Fragment {
                 e.printStackTrace();
             }
         }
+        if (networkMonitor != null) {
+            networkMonitor.stopMonitoring();
+        }
+        if (hybridDbManager != null) {
+            hybridDbManager.shutdown();
+        }
         binding = null;
+    }
+
+    /**
+     * Data class to hold color comparison results
+     */
+    public static class ColorComparisonResult {
+        private final List<Integer> similarColors;
+        private final List<Integer> uniqueColors;
+        private final List<ColorMatch> colorMatches;
+        private final int existingColorsCount;
+
+        public ColorComparisonResult(List<Integer> similarColors, List<Integer> uniqueColors, 
+                                   List<ColorMatch> colorMatches, int existingColorsCount) {
+            this.similarColors = similarColors;
+            this.uniqueColors = uniqueColors;
+            this.colorMatches = colorMatches;
+            this.existingColorsCount = existingColorsCount;
+        }
+
+        public List<Integer> getSimilarColors() { return similarColors; }
+        public List<Integer> getUniqueColors() { return uniqueColors; }
+        public List<ColorMatch> getColorMatches() { return colorMatches; }
+        public int getExistingColorsCount() { return existingColorsCount; }
+    }
+
+    /**
+     * Data class to represent a color match between new and existing colors
+     */
+    public static class ColorMatch {
+        private final int newColor;
+        private final int existingColor;
+        private final double similarity;
+
+        public ColorMatch(int newColor, int existingColor, double similarity) {
+            this.newColor = newColor;
+            this.existingColor = existingColor;
+            this.similarity = similarity;
+        }
+
+        public int getNewColor() { return newColor; }
+        public int getExistingColor() { return existingColor; }
+        public double getSimilarity() { return similarity; }
     }
 }

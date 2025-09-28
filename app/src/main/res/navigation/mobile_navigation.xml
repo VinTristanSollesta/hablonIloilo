@@ -41,4 +41,10 @@
         android:label="Create Color Group"
         tools:layout="@layout/fragment_color_group" />
 
+    <fragment
+        android:id="@+id/navigation_sync_settings"
+        android:name="com.example.habloniloilo.ui.sync.SyncSettingsFragment"
+        android:label="Sync Settings"
+        tools:layout="@layout/fragment_sync_settings" />
+
 </navigation>

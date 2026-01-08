@@ -2,10 +2,6 @@ package com.example.habloniloilo.ui.color;
 
 import android.graphics.Color;
 import android.os.Bundle;
-import android.text.SpannableString;
-import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
-import android.text.style.StyleSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -52,13 +48,10 @@ public class CompareColorsFragment extends Fragment {
         // get latest palette group colors (instead of all existing colors)
         groups = groupDbHelper.getAllColorGroups();
 
-        // Match captured colors to existing color groups
-        // captured list with matched group names
+        // compare exact RGB matches
+        // captured list (no status, just HSV)
         List<CompareItem> capturedList = new ArrayList<>();
-        for (int c : newColors) {
-            String matchedGroups = findMatchingGroups(c, groups);
-            capturedList.add(new CompareItem(c, matchedGroups));
-        }
+        for (int c : newColors) capturedList.add(new CompareItem(c, null));
 
         // existing palette grouped sections
         List<GroupSection> existingSections = new ArrayList<>();
@@ -96,7 +89,7 @@ public class CompareColorsFragment extends Fragment {
 
     private void showColorToast(int color, String groupName) {
         float[] hsv = colorToHsv(color);
-        String prefix = groupName != null && !groupName.isEmpty() ? "Group: " + groupName + "\n" : "";
+        String prefix = groupName != null ? "Group: " + groupName + "\n" : "";
         String msg = String.format(
                 "%sHSV: (H: %.1f°, S: %.2f, V: %.2f)",
                 prefix, hsv[0], hsv[1], hsv[2]
@@ -137,63 +130,6 @@ public class CompareColorsFragment extends Fragment {
         return hsv;
     }
 
-    /**
-     * Find color groups that contain colors similar to the given color
-     * @param color The color to match
-     * @param groups List of all color groups
-     * @return Comma-separated string of matching group names, or null if no matches
-     */
-    private String findMatchingGroups(int color, List<ColorGroup> groups) {
-        List<String> matchingGroupNames = new ArrayList<>();
-        
-        for (ColorGroup group : groups) {
-            for (int groupColor : group.getColors()) {
-                if (isColorSimilar(color, groupColor)) {
-                    matchingGroupNames.add(group.getName());
-                    break; // Only add group name once
-                }
-            }
-        }
-        
-        if (matchingGroupNames.isEmpty()) {
-            return null;
-        }
-        
-        // Build comma-separated string
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < matchingGroupNames.size(); i++) {
-            if (i > 0) sb.append(", ");
-            sb.append(matchingGroupNames.get(i));
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Check if two colors are similar using weighted RGB difference
-     * @param color1 First color
-     * @param color2 Second color
-     * @return true if colors are similar (difference < 30)
-     */
-    private boolean isColorSimilar(int color1, int color2) {
-        int r1 = (color1 >> 16) & 0xFF;
-        int g1 = (color1 >> 8) & 0xFF;
-        int b1 = color1 & 0xFF;
-        
-        int r2 = (color2 >> 16) & 0xFF;
-        int g2 = (color2 >> 8) & 0xFF;
-        int b2 = color2 & 0xFF;
-        
-        // Calculate color difference using weighted RGB
-        double diff = Math.sqrt(
-            Math.pow(r1 - r2, 2) * 0.3 +  // Red weight
-            Math.pow(g1 - g2, 2) * 0.59 + // Green weight
-            Math.pow(b1 - b2, 2) * 0.11   // Blue weight
-        );
-        
-        // Consider colors similar if their difference is less than 30
-        return diff < 30;
-    }
-
     // Local adapter copy (keeps coupling minimal). Move to shared file if needed.
     private static class ColorAdapter extends RecyclerView.Adapter<ColorAdapter.ColorViewHolder> {
         private final List<CompareItem> items;
@@ -224,19 +160,9 @@ public class CompareColorsFragment extends Fragment {
             holder.colorView.setBackgroundColor(item.color);
 
             float[] hsv = colorToHsv(item.color);
-            String hsvText = String.format("HSV: (H: %.1f°, S: %.2f, V: %.2f)", hsv[0], hsv[1], hsv[2]);
-            
-            if (item.groupName != null && !item.groupName.isEmpty()) {
-                String fullText = "✓ " + item.groupName + "\n" + hsvText;
-                SpannableString spannable = new SpannableString(fullText);
-                // Make matched group name bold and colored
-                int matchEnd = item.groupName.length() + 2; // +2 for "✓ "
-                spannable.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), 0, matchEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                spannable.setSpan(new ForegroundColorSpan(0xFF4CAF50), 0, matchEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                holder.colorHex.setText(spannable);
-            } else {
-                holder.colorHex.setText(hsvText);
-            }
+            String prefix = item.groupName != null ? "Group: " + item.groupName + "\n" : "";
+            holder.colorHex.setText(String.format("%sHSV: (H: %.1f°, S: %.2f, V: %.2f)",
+                    prefix, hsv[0], hsv[1], hsv[2]));
 
             holder.checkbox.setOnCheckedChangeListener(null);
             holder.checkbox.setChecked(false);
@@ -343,10 +269,6 @@ public class CompareColorsFragment extends Fragment {
                 HeaderRow headerRow = (HeaderRow) row;
                 HeaderViewHolder hvh = (HeaderViewHolder) holder;
                 hvh.title.setText(headerRow.section.name);
-                // Update indicator rotation based on expanded state
-                if (hvh.indicator != null) {
-                    hvh.indicator.setRotation(headerRow.section.expanded ? 180f : 0f);
-                }
                 hvh.itemView.setOnClickListener(v -> {
                     headerRow.section.expanded = !headerRow.section.expanded;
                     rebuildRows();
@@ -388,11 +310,9 @@ public class CompareColorsFragment extends Fragment {
 
         static class HeaderViewHolder extends RecyclerView.ViewHolder {
             final TextView title;
-            final TextView indicator;
             HeaderViewHolder(View itemView) {
                 super(itemView);
                 title = itemView.findViewById(R.id.header_title);
-                indicator = itemView.findViewById(R.id.header_indicator);
             }
         }
 

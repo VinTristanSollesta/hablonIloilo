@@ -27,7 +27,6 @@ public class MainActivity extends AppCompatActivity {
                 .build();
         
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
             NavigationUI.setupActionBarWithNavController(this, navController, appBarConfiguration);
         }
     }

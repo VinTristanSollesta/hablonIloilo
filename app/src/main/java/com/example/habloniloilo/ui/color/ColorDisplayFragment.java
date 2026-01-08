@@ -99,29 +99,17 @@ public class ColorDisplayFragment extends Fragment {
             binding.colorsRecyclerView.setLayoutManager(new LinearLayoutManager(requireContext()));
             binding.colorsRecyclerView.setAdapter(colorAdapter);
 
-            // Setup save button
+            // Setup save button (only navigate to compare; do not save yet)
             binding.saveButton.setOnClickListener(v -> {
                 if (selectedColors.isEmpty()) {
                     Toast.makeText(requireContext(), "Please select colors to save", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                
-                // Save selected colors to database
-                for (int color : selectedColors) {
-                    dbHelper.addColor(color);
-                }
-                
-                // Create a color group with the selected colors
-                String groupName = "Camera Colors " + System.currentTimeMillis();
-                long groupId = groupDbHelper.addColorGroup(groupName, new ArrayList<>(selectedColors));
-                
-                if (groupId != -1) {
-                    Toast.makeText(requireContext(), "Colors saved to palette", Toast.LENGTH_SHORT).show();
-                    // Navigate to color palette screen
-                    Navigation.findNavController(v).navigate(R.id.navigation_color_palette);
-                } else {
-                    Toast.makeText(requireContext(), "Error saving colors", Toast.LENGTH_SHORT).show();
-                }
+
+                // Navigate to CompareColorsFragment with the selected colors (no autosave)
+                Bundle bundle = new Bundle();
+                bundle.putIntegerArrayList("new_colors", new ArrayList<>(selectedColors));
+                Navigation.findNavController(v).navigate(R.id.action_navigation_color_display_to_compareColorsFragment, bundle);
             });
 
             // Initially disable save button
@@ -229,4 +217,4 @@ public class ColorDisplayFragment extends Fragment {
             }
         }
     }
-} 
+}

@@ -51,13 +51,14 @@ public class ColorGroupFragment extends Fragment {
         groupDbHelper = new ColorGroupDatabaseHelper(requireContext());
 
         // Check if we're editing an existing group
+        ColorGroupDatabaseHelper.ColorGroup editingGroup = null;
         Bundle args = getArguments();
         if (args != null && args.containsKey("group_id")) {
             editingGroupId = args.getLong("group_id");
-            ColorGroupDatabaseHelper.ColorGroup group = groupDbHelper.getColorGroup(editingGroupId);
-            if (group != null) {
-                selectedColors.addAll(group.getColors());
-                binding.groupNameEditText.setText(group.getName());
+            editingGroup = groupDbHelper.getColorGroup(editingGroupId);
+            if (editingGroup != null) {
+                selectedColors.addAll(editingGroup.getColors());
+                binding.groupNameEditText.setText(editingGroup.getName());
             }
         }
 
@@ -70,7 +71,13 @@ public class ColorGroupFragment extends Fragment {
 
         try {
             // Load colors from database
-            availableColors = colorDbHelper.getAllColors();
+            // If editing a group, only show colors that are already in that group
+            // Otherwise, show all colors from database
+            if (editingGroupId != -1 && editingGroup != null) {
+                availableColors = new ArrayList<>(editingGroup.getColors());
+            } else {
+                availableColors = colorDbHelper.getAllColors();
+            }
 
             // Setup RecyclerView
             colorAdapter = new ColorAdapter(availableColors, selectedColors, new ColorAdapter.OnColorClickListener() {

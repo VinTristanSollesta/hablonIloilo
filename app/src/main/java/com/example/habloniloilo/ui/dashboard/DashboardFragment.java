@@ -39,6 +39,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class DashboardFragment extends Fragment {
 
@@ -264,8 +265,14 @@ public class DashboardFragment extends Fragment {
                 }
             }
 
-            // Convert map to list
-            return new ArrayList<>(colorCounts.keySet());
+            // Sort colors by count (most dominant first) and limit to top 8
+            List<Integer> sortedColors = colorCounts.entrySet().stream()
+                    .sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
+                    .limit(8)
+                    .map(Map.Entry::getKey)
+                    .collect(Collectors.toList());
+
+            return sortedColors;
         } catch (Exception e) {
             Log.e(TAG, "Error extracting colors", e);
             return new ArrayList<>();

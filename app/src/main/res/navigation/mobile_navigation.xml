@@ -27,7 +27,11 @@
         android:id="@+id/navigation_color_display"
         android:name="com.example.habloniloilo.ui.color.ColorDisplayFragment"
         android:label="Extracted Colors"
-        tools:layout="@layout/fragment_color_display" />
+        tools:layout="@layout/fragment_color_display" >
+        <action
+            android:id="@+id/action_navigation_color_display_to_compareColorsFragment"
+            app:destination="@id/navigation_compare_colors" />
+    </fragment>
 
     <fragment
         android:id="@+id/navigation_color_palette"
@@ -46,5 +50,11 @@
         android:name="com.example.habloniloilo.ui.sync.SyncSettingsFragment"
         android:label="Sync Settings"
         tools:layout="@layout/fragment_sync_settings" />
+
+    <fragment
+        android:id="@+id/navigation_compare_colors"
+        android:name="com.example.habloniloilo.ui.color.CompareColorsFragment"
+        android:label="Compare Colors"
+        tools:layout="@layout/fragment_compare_colors" />
 
 </navigation>
